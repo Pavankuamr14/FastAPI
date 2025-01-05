@@ -186,7 +186,7 @@ def updatePartialById(id: int, post: Post):
     temporaryDataBase[index] = updated_post  # Save back to database
 
     return {"message": "Successfully updated post", "updated_data": updated_post}
-@app.delete('/posts/{id}', status_code=204)
+@app.delete('/posts/{id}', status_code=status.HTTP_204_NO_CONTENT)
 def delete_post(id: int):
     for index, data in enumerate(temporaryDataBase):
         if data['id'] == id:
