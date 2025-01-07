@@ -79,7 +79,7 @@
 #   PATCH
 # R - Read - one post or all post
 # D - delete
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, status, HTTPException, Depends
 import psycopg2.extras
 from pydantic import BaseModel
 from typing import Optional
@@ -87,6 +87,13 @@ from random import randrange
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
+
+# importing the session from the sqlalchemy
+from sqlalchemy.orm import Session
+from . import models
+from .database import engine, get_db
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -115,7 +122,7 @@ while True:
         time.sleep(2)
 
 
-temporaryDataBase = [{'title':'first title','content':'my first post title',id:1}]
+temporaryDataBase = [{"title": "first title", "content": "my first post title", id: 1}]
 
 
 def findDataIndex(id_value):
@@ -129,30 +136,44 @@ def findDataIndex(id_value):
 def root():
     return {"details": temporaryDataBase}
 
-@app.get('/posts')
+
+# for testing purpose whether connection is done or not
+@app.get("/sqlachlemy")
+def testing(db: Session = Depends(get_db)):
+    posts = db.query(models.Post).all()
+    return {"data": posts}
+
+
+@app.get("/posts")
 def get_posts():
-    cursor.execute("""SELECT * FROM posts""") 
-    posts = cursor.fetchall()   
-    return {'data':posts}                   # Return the fetched data
+    cursor.execute("""SELECT * FROM posts""")
+    posts = cursor.fetchall()
+    return {"data": posts}  # Return the fetched data
 
 
 @app.get("/posts/{id}")
 def getdatabyID(id: int):
-    cursor.execute("""SELECT * FROM posts WHERE id = %s""",(str(id)))
-    post=cursor.fetchone()
+    cursor.execute("""SELECT * FROM posts WHERE id = %s""", (str(id)))
+    post = cursor.fetchone()
     if not post:
-        raise HTTPException(status_code=404, detail=f"post with id : {id} Data was not found")
-    return {"post_details":post}
+        raise HTTPException(
+            status_code=404, detail=f"post with id : {id} Data was not found"
+        )
+    return {"post_details": post}
+
 
 @app.post("/posts", status_code=status.HTTP_201_CREATED)
 def createPost(post: Post):
     # cursor.execute(f"{INSERT INTO posts (title,content,published) VALUES (post.title,post.content,post.published)}") --THIS WILL MAY CAUSE THE SQL ingestion TO AVOID THIS WE WILL USE THE BELOW COMMAND
-    
-    cursor.execute("""INSERT INTO posts(title,content,published) VALUES (%s,%s,%s) RETURNING * """,
-                   (post.title,post.content,post.published))
+
+    cursor.execute(
+        """INSERT INTO posts(title,content,published) VALUES (%s,%s,%s) RETURNING * """,
+        (post.title, post.content, post.published),
+    )
     new_post = cursor.fetchone()
     conn.commit()
     return {"created data": new_post}
+
 
 @app.patch("/posts/{id}")
 def updatePartialById(id: int, post: Post):
@@ -171,22 +192,30 @@ def updatePartialById(id: int, post: Post):
 
 @app.delete("/posts/{id}", status_code=204)
 def delete_post(id: int):
-    cursor.execute("""DELETE FROM posts WHERE id = %s RETURNING * """,(str(id)))
-    delete_post=cursor.fetchone()
+    cursor.execute("""DELETE FROM posts WHERE id = %s RETURNING * """, (str(id)))
+    delete_post = cursor.fetchone()
     conn.commit()
-    if delete_post==None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"pst with id: {id} does not exist")
-    
-    raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
-    
+    if delete_post == None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"pst with id: {id} does not exist",
+        )
 
-@app.put('/posts/{id}')
+    raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.put("/posts/{id}")
 # put
-def UpdateById(id:int,post:Post):
-  cursor.execute("""UPDATE posts SET title = %s, content = %s , published = %s WHERE id = %s RETURNING * """,
-                 (post.title, post.content, post.published,str(id)))
-  updated_post= cursor.fetchone()
-  conn.commit()
-  if updated_post==None:
-      raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,detail=f"post with {id} is not found ")
-  return {"data":updated_post}
+def UpdateById(id: int, post: Post):
+    cursor.execute(
+        """UPDATE posts SET title = %s, content = %s , published = %s WHERE id = %s RETURNING * """,
+        (post.title, post.content, post.published, str(id)),
+    )
+    updated_post = cursor.fetchone()
+    conn.commit()
+    if updated_post == None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"post with {id} is not found ",
+        )
+    return {"data": updated_post}
