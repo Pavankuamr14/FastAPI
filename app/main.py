@@ -81,27 +81,21 @@
 # D - delete
 from fastapi import FastAPI, status, HTTPException, Depends
 import psycopg2.extras
-from pydantic import BaseModel
-from typing import Optional
+
+
 from random import randrange
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import time
-
+from typing import Optional,List
 # importing the session from the sqlalchemy
 from sqlalchemy.orm import Session
-from . import models
+from . import models, schemas
 from .database import engine, get_db
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
-
-class Post(BaseModel):
-    title: str
-    content: str
-    published: Optional[bool] = True
 
 
 while True:
@@ -110,7 +104,7 @@ while True:
             host="localhost",
             database="fastapi",
             user="postgres",
-            password="pavan@5701",
+            password="password123",
             cursor_factory=psycopg2.extras.RealDictCursor,
         )
         cursor = conn.cursor()
@@ -134,26 +128,19 @@ def findDataIndex(id_value):
 
 @app.get("/")
 def root():
-    return {"details": temporaryDataBase}
+    return temporaryDataBase
 
 
-# for testing purpose whether connection is done or not
-@app.get("/sqlachlemy")
-def testing(db: Session = Depends(get_db)):
-    posts = db.query(models.Post).all()
-    return {"data": posts}
-
-
-@app.get("/posts")
+@app.get("/posts",response_model=list[schemas.PostResponse])
 def get_posts(db: Session = Depends(get_db)):
     # cursor.execute("""SELECT * FROM posts""")
     # posts = cursor.fetchall()
 
     posts = db.query(models.Post).all()
-    return {"data": posts}  # Return the fetched data
+    return posts  # Return the fetched data
 
 
-@app.get("/posts/{id}")
+@app.get("/posts/{id}", response_model=schemas.PostResponse)
 def getdatabyID(id: int, db: Session = Depends(get_db)):
     post = db.query(models.Post).filter(models.Post.id == id).first()
 
@@ -163,11 +150,11 @@ def getdatabyID(id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=404, detail=f"post with id : {id} Data was not found"
         )
-    return {"post_details": post}
+    return post
 
 
-@app.post("/posts", status_code=status.HTTP_201_CREATED)
-def createPost(post: Post, db: Session = Depends(get_db)):
+@app.post("/posts", status_code=status.HTTP_201_CREATED, response_model=schemas.PostResponse)
+def createPost(post: schemas.PostCreate, db: Session = Depends(get_db)):
     # cursor.execute(f"{INSERT INTO posts (title,content,published) VALUES (post.title,post.content,post.published)}") --THIS WILL MAY CAUSE THE SQL ingestion TO AVOID THIS WE WILL USE THE BELOW COMMAND
 
     # cursor.execute(
@@ -186,22 +173,22 @@ def createPost(post: Post, db: Session = Depends(get_db)):
     db.add(new_post)
     db.commit()
     db.refresh(new_post)
-    return {"created data": new_post}
+    return new_post
 
 
-@app.patch("/posts/{id}")
-def updatePartialById(id: int, post: Post):
-    index = findDataIndex(id)  # Find the index of the post with the given ID
-    if index is None:
-        raise HTTPException(status_code=404, detail="Data not found")
+# @app.patch("/posts/{id}")
+# def updatePartialById(id: int, post: schemas.Post):
+#     index = findDataIndex(id)  # Find the index of the post with the given ID
+#     if index is None:
+#         raise HTTPException(status_code=404, detail="Data not found")
 
-    # Update only the fields provided in the request
-    existing_post = temporaryDataBase[index]
-    update_data = post.dict(exclude_unset=True)  # Exclude unset fields
-    updated_post = {**existing_post, **update_data}  # Merge existing and update data
-    temporaryDataBase[index] = updated_post  # Save back to database
+#     # Update only the fields provided in the request
+#     existing_post = temporaryDataBase[index]
+#     update_data = post.dict(exclude_unset=True)  # Exclude unset fields
+#     updated_post = {**existing_post, **update_data}  # Merge existing and update data
+#     temporaryDataBase[index] = updated_post  # Save back to database
 
-    return {"message": "Successfully updated post", "updated_data": updated_post}
+#     return {"message": "Successfully updated post", "updated_data": updated_post}
 
 
 @app.delete("/posts/{id}", status_code=204)
@@ -220,9 +207,9 @@ def delete_post(id: int, db: Session = Depends(get_db)):
     raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.put("/posts/{id}")
+@app.put("/posts/{id}", response_model=schemas.PostResponse)
 # put
-def UpdateById(id: int, post: Post, db: Session = Depends(get_db)):
+def UpdateById(id: int, post: schemas.PostCreate, db: Session = Depends(get_db)):
     # cursor.execute(
     #     """UPDATE posts SET title = %s, content = %s , published = %s WHERE id = %s RETURNING * """,
     #     (post.title, post.content, post.published, str(id)),
@@ -240,4 +227,4 @@ def UpdateById(id: int, post: Post, db: Session = Depends(get_db)):
     #                   sychronize_session=False)
     post_query.update(post.dict(), synchronize_session=False)
     db.commit()
-    return {"data": post_query.first()}
+    return post_query.first()
