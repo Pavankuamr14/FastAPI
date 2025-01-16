@@ -3,6 +3,7 @@ from fastapi import FastAPI, status, HTTPException, Depends, APIRouter
 from sqlalchemy.orm import Session
 from ..database import engine, get_db
 from .. import oauth2
+from typing import Optional
 
 from typing import List
 
@@ -11,9 +12,22 @@ router = APIRouter(prefix="/posts", tags=["Post"])
 
 @router.get("/", response_model=list[schemas.PostResponse])
 def get_posts(
-    db: Session = Depends(get_db), current_user: int = Depends(oauth2.get_current_user)
+    db: Session = Depends(get_db),
+    current_user: int = Depends(oauth2.get_current_user),
+    limit: int = 10,
+    skip: int = 0,
+    search: Optional[str] = "",
 ):
-    posts = db.query(models.Post).all()
+    posts = (
+        db.query(models.Post)
+        .filter(models.Post.title.contains(search))
+        .limit(limit)
+        .offset(skip)
+        .all()
+    )  # this is for getting all post
+    # posts = db.query(models.Post).filter(models.Post.owner_id == current_user.id).all()
+    # BY this your can only see your own post that you have created rather than others post. It's just like Note taking application.
+
     return posts  # Return the fetched data
 
 
@@ -29,6 +43,12 @@ def getdatabyID(
             status_code=404, detail=f"post with id : {id} Data was not found"
         )
     return post
+    # if post.owner_id != current_user.id:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="not authorized to perform requested action",
+    #     )
+    # BY this your can only see your own post that you have created rather than others post. It's just like Note taking application.
 
 
 @router.post(
@@ -40,7 +60,7 @@ def createPost(
     current_user: int = Depends(oauth2.get_current_user),
 ):
     print(current_user.email)
-    new_post = models.Post(**post.dict())
+    new_post = models.Post(owner_id=current_user.id, **post.dict())
 
     db.add(new_post)
     db.commit()
@@ -55,13 +75,19 @@ def delete_post(
     current_user: int = Depends(oauth2.get_current_user),
 ):
 
-    post = db.query(models.Post).filter(models.Post.id == id)
-    if post.first() == None:
+    post_query = db.query(models.Post).filter(models.Post.id == id)
+    post = post_query.first()
+    if post == None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"pst with id: {id} does not exist",
         )
-    post.delete(synchronize_session=False)
+    if post.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="not authorized to perform requested action",
+        )
+    post_query.delete(synchronize_session=False)
     db.commit()
     raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -69,17 +95,49 @@ def delete_post(
 @router.put("/{id}", response_model=schemas.PostResponse)
 def UpdateById(
     id: int,
-    post: schemas.PostCreate,
+    updated_post_data: schemas.PostCreate,  # Renamed for clarity
     db: Session = Depends(get_db),
     current_user: int = Depends(oauth2.get_current_user),
 ):
     post_query = db.query(models.Post).filter(models.Post.id == id)
-    post_updated = post_query.first()
-    if post_updated == None:
+    existing_post = post_query.first()  # Renamed for clarity
+    if existing_post is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"post with {id} is not found ",
         )
-    post_query.update(post.dict(), synchronize_session=False)
+    if existing_post.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to perform request action",
+        )
+
+    post_query.update(
+        updated_post_data.dict(), synchronize_session=False
+    )  # Use updated_post_data here
     db.commit()
     return post_query.first()
+
+
+# @router.put("/{id}", response_model=schemas.PostResponse)
+# def UpdateById(
+#     id: int,
+#     post: schemas.PostCreate,
+#     db: Session = Depends(get_db),
+#     current_user: int = Depends(oauth2.get_current_user),
+# ):
+#     post_query = db.query(models.Post).filter(models.Post.id == id)
+#     post = post_query.first()
+#     if post == None:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail=f"post with {id} is not found ",
+#         )
+#     if post.owner_id != current_user.id:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="Not authorized to perform request action",
+#         )
+#     post_query.update(post.dict(), synchronize_session=False)
+#     db.commit()
+#     return post_query.first()
