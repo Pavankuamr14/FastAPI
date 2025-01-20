@@ -1,6 +1,7 @@
 from .. import models, schemas
 from fastapi import FastAPI, status, HTTPException, Depends, APIRouter
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from ..database import engine, get_db
 from .. import oauth2
 from typing import Optional
@@ -10,7 +11,7 @@ from typing import List
 router = APIRouter(prefix="/posts", tags=["Post"])
 
 
-@router.get("/", response_model=list[schemas.PostResponse])
+@router.get("/", response_model=List[schemas.PostOut])
 def get_posts(
     db: Session = Depends(get_db),
     current_user: int = Depends(oauth2.get_current_user),
@@ -18,37 +19,110 @@ def get_posts(
     skip: int = 0,
     search: Optional[str] = "",
 ):
-    posts = (
-        db.query(models.Post)
+    results = (
+        db.query(models.Post, func.count(models.Vote.post_id).label("votes"))
+        .join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True)
+        .group_by(models.Post.id)
         .filter(models.Post.title.contains(search))
         .limit(limit)
         .offset(skip)
         .all()
-    )  # this is for getting all post
-    # posts = db.query(models.Post).filter(models.Post.owner_id == current_user.id).all()
-    # BY this your can only see your own post that you have created rather than others post. It's just like Note taking application.
+    )
 
-    return posts  # Return the fetched data
+    posts = [
+        {
+            **schemas.PostResponse.from_orm(
+                post
+            ).dict(),  # Convert to Pydantic model first
+            "votes": votes,
+            "owner": post.owner,
+        }
+        for post, votes in results
+    ]
+    return posts
 
 
-@router.get("/{id}", response_model=schemas.PostResponse)
+# @router.get("/", response_model=List[schemas.PostOut])
+# def get_posts(
+#     db: Session = Depends(get_db),
+#     current_user: int = Depends(oauth2.get_current_user),
+#     limit: int = 10,
+#     skip: int = 0,
+#     search: Optional[str] = "",
+# ):
+#     posts = (
+#         db.query(models.Post)
+#         .filter(models.Post.title.contains(search))
+#         .limit(limit)
+#         .offset(skip)
+#         .all()
+#     )  # this is for getting all post
+#     # posts = db.query(models.Post).filter(models.Post.owner_id == current_user.id).all()
+#     # BY this your can only see your own post that you have created rather than others post. It's just like Note taking application.
+#     result = (
+#             db.query(models.Post, func.count(models.Vote.post_id).label("vote"))
+#             .join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True)
+#             .group_by(models.Post.id)
+#             .all()
+#         )
+#     return result
+
+
+# return posts  # Return the fetched data
+
+
+@router.get("/{id}", response_model=schemas.PostOut)
 def getdatabyID(
     id: int,
     db: Session = Depends(get_db),
     current_user: int = Depends(oauth2.get_current_user),
 ):
-    post = db.query(models.Post).filter(models.Post.id == id).first()
-    if not post:
+    results = (  # renamed for consistency with get_posts
+        db.query(models.Post, func.count(models.Vote.post_id).label("votes"))
+        .join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True)
+        .group_by(models.Post.id)
+        .filter(models.Post.id == id)
+        .first()
+    )
+
+    if not results:  # check if results is None or empty
         raise HTTPException(
             status_code=404, detail=f"post with id : {id} Data was not found"
         )
-    return post
-    # if post.owner_id != current_user.id:
-    #     raise HTTPException(
-    #         status_code=status.HTTP_403_FORBIDDEN,
-    #         detail="not authorized to perform requested action",
-    #     )
-    # BY this your can only see your own post that you have created rather than others post. It's just like Note taking application.
+
+    post, votes = results  # unpack the tuple
+    post_dict = schemas.PostResponse.from_orm(
+        post
+    ).dict()  # convert to postResponse object first
+    post_dict["votes"] = votes  # manually add votes
+    return post_dict  # (post_dict)
+
+
+# @router.get("/{id}", response_model=schemas.PostOut)
+# def getdatabyID(
+#     id: int,
+#     db: Session = Depends(get_db),
+#     current_user: int = Depends(oauth2.get_current_user),
+# ):
+#     # post = db.query(models.Post).filter(models.Post.id == id).first()
+#     post = (
+#         db.query(models.Post, func.count(models.Vote.post_id).label("votes"))
+#         .join(models.Vote, models.Vote.post_id == models.Post.id, isouter=True)
+#         .group_by(models.Post.id)
+#         .filter(models.Post.id == id)
+#         .first()
+#     )
+#     if not post:
+#         raise HTTPException(
+#             status_code=404, detail=f"post with id : {id} Data was not found"
+#         )
+#     return post
+# if post.owner_id != current_user.id:
+#     raise HTTPException(
+#         status_code=status.HTTP_403_FORBIDDEN,
+#         detail="not authorized to perform requested action",
+#     )
+# BY this your can only see your own post that you have created rather than others post. It's just like Note taking application.
 
 
 @router.post(
